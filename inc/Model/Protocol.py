@@ -1,6 +1,6 @@
 import json
 
-# abstract
+# abstract?
 class Protocol:
     size: float
 
