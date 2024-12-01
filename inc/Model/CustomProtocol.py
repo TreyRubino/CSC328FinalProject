@@ -1,5 +1,11 @@
 # Trey Rubino
 
+# `Abstract` class of our custom  protocol.
+# Both `Request` and `Response` inherit the methods in this class (they are derived classes).
+# CustomProtocol handles the preparation, altering, validating, and decoding our communications.
+# This design allows growth in this project allowing others build other types of request and response,
+# in a `Polymorphic` way. This would be ideal if we wanted to add in more functionality at a later data.
+
 import json
 
 class CustomProtocol:
@@ -16,7 +22,7 @@ class CustomProtocol:
     @staticmethod
     def decode(data: bytes, cls):
         raw_data = json.loads(data.decode('utf-8'))
-        return cls(**raw_data)
+        return cls(**raw_data) 
 
     def attach_binary_data(self, binary_data: bytes):
         if hasattr(self, 'size') and len(binary_data) == self.size:

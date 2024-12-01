@@ -1,8 +1,16 @@
 # Trey Rubino
 
+# These are model classes, and object (data structure) of the custom Response of our protocol.
+# To access properties of this class, use the `.` member access operator on an instance of this class.
+
 from dataclasses import dataclass
 from datetime import datetime
 
+# Basic but dynamic representation of our protocols client connections.
+# This model class can be used by our server to neatly and efficiently represent a connected client.
+# Usage of this class can make it easy to keep track of all clients connected and manage their data efficiently.
+# This can include last commands executed, ip address, fds, connect lengths. This can be used for server shut downs, 
+# as well as security measures.
 @dataclass
 class Connection:
     ip_address: str

@@ -1,9 +1,13 @@
 # Trey Rubino
 
+# These are model classes, and object (data structure) of the custom Response of our protocol.
+# To access properties of this class, use the `.` member access operator on an instance of this class.
+
 from dataclasses import dataclass
 from typing import Optional
-from CustomProtocol import CustomProtocol
+from .CustomProtocol import CustomProtocol
 
+# Basic but dynamic representation of our protocols requests.
 @dataclass
 class Request(CustomProtocol):
     cmd: str
