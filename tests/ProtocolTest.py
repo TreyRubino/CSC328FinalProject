@@ -1,3 +1,5 @@
+# Trey Rubino
+
 import sys
 import os
 
@@ -7,7 +9,6 @@ sys.path.append(project_root)
 
 from inc.Utility.Utility import Utility
 from inc.Model.Request import Request
-
 
 def mock_ls(utility: Utility, directory_path: str):
     # Create a Request object with the specified directory path

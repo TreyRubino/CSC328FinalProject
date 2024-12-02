@@ -1,6 +1,6 @@
 # Trey Rubino
 
-# These are model classes, and object (data structure) of the custom Response of our protocol.
+# These are model classes, an object (data structure) of the custom Response of our protocol.
 # To access properties of this class, use the `.` member access operator on an instance of this class.
 
 from dataclasses import dataclass, field

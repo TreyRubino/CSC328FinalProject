@@ -1,5 +1,7 @@
 # Trey Rubino 
 
+# Common functionality.
+
 import os
 from typing import Type
 from ..Model.Request import Request
@@ -20,6 +22,34 @@ class Utility:
     def __init__(self):
         self.local_working_directory = os.getcwd()
 
+    def help(self) -> Response:
+        try:
+            help_text = (
+                "--------------------\n"
+                "Remote Commands:\n"
+                "  exit                     : Quit the application.\n"
+                "  help                     : Display this help text.\n"
+                "  cd [path]                : Change remote directory to 'path'. If 'path' is not specified, change to the session's starting directory.\n"
+                "  ls [path]                : Display a remote directory listing of 'path' or the current directory if 'path' is not specified.\n"
+                "  mkdir path               : Create a remote directory specified by 'path'.\n"
+                "  pwd                      : Display the remote working directory.\n"
+                "  get [-R] remote-path [local-path]\n"
+                "                           : Retrieve 'remote-path' and store it on the local machine. If 'local-path' is not specified, use the same name as on the remote machine.\n"
+                "                             If the -R flag is specified, directories are copied recursively.\n"
+                "  put [-R] local-path [remote-path]\n"
+                "                           : Upload 'local-path' and store it on the remote machine. If 'remote-path' is not specified, use the same name as on the local machine.\n"
+                "                             If the -R flag is specified, directories are copied recursively.\n"
+                "\n"
+                "Local Commands:\n"
+                "  lcd [path]               : Change local directory to 'path'. If 'path' is not specified, change to the user's home directory.\n"
+                "  lls [path]               : Display local directory listing of 'path' or the current directory if 'path' is not specified.\n"
+                "  lmkdir path              : Create a local directory specified by 'path'.\n"
+                "  lpwd                     : Print the local working directory.\n"
+            )
+            return Response(status="success", message=help_text)
+        except Exception as e:
+            return Response(status="error", message=f"Failed to generate help text: {str(e)}", code="ERR_HELP")
+        
     # ls
     # Lists the request directory files.
     # Builds `Response.contents` containing size, name, and type of the entries.
@@ -31,7 +61,7 @@ class Utility:
             for entry in os.scandir(path):                         # Scan the directory for entries
                 # Append each entry to `Response.contents` with details (size, name, type)
                 entries.append(Content(size=entry.stat().st_size, name=entry.name, type="dir" if entry.is_dir() else "file"))
-            return Response(status="success", contents=entries, code=None)  # Return success response with directory entries
+            return Response(status="success", contents=entries)  # Return success response with directory entries
         except FileNotFoundError:                                  # Handle cases where the directory doesn't exist
             return Response(status="error", message=f"Directory '{path}' not found.", contents=[], code="ERR_DIR_NOT_FOUND")
         except PermissionError:                                    # Handle cases where access is denied
@@ -39,8 +69,8 @@ class Utility:
 
     # pwd
     # Returns the current working directory as the `Response.message`.
-    def pwd(self, request: Request) -> Response:
-        return Response(status="success", message=self.local_working_directory, code=None)
+    def pwd(self) -> Response:
+        return Response(status="success", message=self.local_working_directory)
 
     # mkdir
     # Creates a new directory in the requested path.
@@ -49,8 +79,11 @@ class Utility:
     def mkdir(self, request: Request) -> Response:
         path = os.path.abspath(os.path.join(self.local_working_directory, request.local_path or request.remote_path))
         try:
-            os.mkdir(path)                                         # Create the directory at the specified path
-            return Response(status="success", message=f"Directory '{request.local_path or request.remote_path}' created.", code=None)
+            if request.recursive: 
+                os.makedirs(path)
+            else:
+                os.mkdir(path)
+            return Response(status="success", message=f"Directory '{request.local_path or request.remote_path}' created.")
         except FileExistsError:                                   # Handle cases where the directory already exists
             return Response(status="error", message=f"Directory '{request.local_path or request.remote_path}' already exists.", code="ERR_DIR_EXISTS")
         except FileNotFoundError:                                 # Handle cases where the path is invalid
@@ -66,12 +99,12 @@ class Utility:
         path = os.path.abspath(os.path.join(self.local_working_directory, request.local_path or request.remote_path))
         if os.path.isdir(path):                                   # Check if the target path is a valid directory
             self.local_working_directory = path                   # Update the current working directory
-            return Response(status="success", message=f"Changed directory to '{self.local_working_directory}'.", code=None)
+            return Response(status="success", message=f"Changed directory to '{self.local_working_directory}'.")
         else:
             return Response(status="error", message=f"'{path}' is not a valid directory.", code="ERR_INVALID_DIR")
-
+        
     # get
-    # One of two methods in this class that handles the send and recv logic for the user.
+    # One of four methods in this class that handles the send and recv logic for the user.
     # Sends the `Request` to the server, receives the `Response`, and writes binary data (if any) to a local file.
     def get(self, conn, request: Request) -> Response:
         try:
@@ -88,7 +121,7 @@ class Utility:
             return Response(status="error", message=f"Failed to download file '{request.remote_path}': {str(e)}", code="ERR_GET_CLIENT")
 
     # put
-    # Two of tow methods in this class that handles the send and recv logic for the user.
+    # Two of four methods in this class that handles the send and recv logic for the user.
     # Sends a file to the server by attaching binary data to the `Request`.
     # Sends the `Request`, then waits for the server's `Response`.
     def put(self, conn, request: Request) -> Response:
@@ -104,6 +137,34 @@ class Utility:
             return self.recv_all(conn, Response)                  # Receive the `Response` from the server
         except Exception as e:
             return Response(status="error", message=f"Failed to send file '{request.local_path}': {str(e)}", code="ERR_PUT_CLIENT")
+
+    # put logic for server
+    def receive_file(self, request: Request) -> Response:
+        try:
+            if request.size <= 0:
+                raise ValueError("Invalid file size in the request.")
+            
+            with open(request.remote_path, "wb") as file:           # open received path in write binary mode
+                file.write(request.get_binary_data())               # write binary data to file
+            
+            return Response(status="success", message=f"File '{request.remote_path}' received successfully.")
+        except Exception as e:
+            # Respond with error in case of failure
+            return Response(status="error", message=f"Failed to save file '{request.remote_path}': {str(e)}", code="ERR_PUT_SERVER")
+
+    # get logic for server
+    def send_file(self, conn, request: Request) -> Response:
+        try:
+            with open(request.remote_path, "rb") as file:           # open requested path in read binary mode
+                binary_data = file.read()                           # read binary data from file
+            
+            response = Response(status="success", message=f"File '{request.remote_path}' sent successfully.", name=request.remote_path, size=len(binary_data))
+            response.attach_binary_data(binary_data)
+
+            self.send_all(conn, response)                           # send response
+            return response
+        except Exception as e:
+            return Response(status="error", message=f"Failed to send file '{request.remote_path}': {str(e)}", code="ERR_GET_SERVER")
 
     # send_all
     # Sends a `CustomProtocol` object (either `Request` or `Response`) and optional binary data over the socket.
@@ -143,6 +204,8 @@ class Utility:
 
                 if len(binary_data) != obj.size:                # Validate the binary data size
                     raise ValueError(f"Binary data size mismatch: expected {obj.size}, got {len(binary_data)}.")
+
+            obj.validate()
 
             return obj                                           # Return the constructed object
         except Exception as e:
