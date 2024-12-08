@@ -15,13 +15,15 @@ build:
 # Build the server executable
 $(EXEC_SERVER): src/start_server.py | $(BUILD_DIR)
 	@echo "Creating server executable in $(BUILD_DIR)..."
-	@cp $< $@
+	@echo "#!/usr/bin/env python3.7" > $@
+	@cat $< >> $@
 	@chmod +x $@
 
 # Build the client executable
 $(EXEC_CLIENT): src/start_client.py | $(BUILD_DIR)
 	@echo "Creating client executable in $(BUILD_DIR)..."
-	@cp $< $@
+	@echo "#!/usr/bin/env python3.7" > $@
+	@cat $< >> $@
 	@chmod +x $@
 
 # Clean up generated files

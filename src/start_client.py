@@ -1,15 +1,27 @@
 #!/usr/bin/env python3
-import sys
-import os
 
-# Add the project root to sys.path
+import os
+import sys
+
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(project_root)
 
-# import any modules you need such as Utility, Request, or Response
+from inc.client import Client
+from inc.Parser.clientParser import parseClient
 
-# Start client logic (main.py)
-try:
-    pass
-except Exception as e:
-    print(f"An error has occurred: {e}")
+#########################################################################
+# Function name: main
+# Description: The main entry point for the client application. It parses 
+#              command-line arguments and initializes the Client object, 
+#              then starts the client connection.
+# Parameters: None
+# Return Value: None
+#########################################################################
+def main():
+    parsedArgs = parseClient(sys.argv[1:]) #get command line values
+    
+    client1 = Client(parsedArgs)
+    client1.startClient()
+
+if __name__ == "__main__":
+    main() #call the main function

@@ -24,10 +24,21 @@ class Connection:
         self.fd = fd                        # File Descriptor (unique connection identifier)
         self.start_time = datetime.now()    # Connection start time
         self.last_command = None            # The last command issued by the client
-        self.connection_length = 1          # length of connection in seconds
+        self.current_working_directory
 
-    def update_connection_length(self):
+    def update(self, command=None, pwd=None):
         self.connection_length = (datetime.now() - self.start_time).total_seconds()
+        if command != None:
+            self.last_command = command
+        elif pwd != None:
+            self.current_working_directory = pwd
 
-    def update_last_command(self, command):
-        self.last_command = command
+    def to_dict(self):
+        connection_data = {
+            "client_id": self.fd.fileno(),
+            "ip_address": self.ip_address,
+            "connection_length": self.connection_length,
+            "last_command": self.last_command,
+            "start_time": self.start_time.isoformat(),
+        }
+        return connection_data

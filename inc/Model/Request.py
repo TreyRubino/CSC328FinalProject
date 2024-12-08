@@ -3,7 +3,7 @@
 # These are model classes, an object (data structure) of the custom Response of our protocol.
 # To access properties of this class, use the `.` member access operator on an instance of this class.
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 from .CustomProtocol import CustomProtocol
 
@@ -11,9 +11,9 @@ from .CustomProtocol import CustomProtocol
 @dataclass
 class Request(CustomProtocol):
     cmd: str
+    options: Optional[list] = field(default_factory=list)
     remote_path: Optional[str] = None
     local_path: Optional[str] = None
-    recursive: Optional[bool] = False
     size: Optional[int] = 0
 
     def validate(self):

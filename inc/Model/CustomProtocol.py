@@ -21,8 +21,23 @@ class CustomProtocol:
 
     @staticmethod
     def decode(data: bytes, cls):
+        # Decode the bytes to a string and parse the JSON data
         raw_data = json.loads(data.decode('utf-8'))
-        return cls(**raw_data) 
+
+        # Handle the conversion of dictionaries in 'contents' to Content objects
+        if 'contents' in raw_data:
+            from .Response import Content  # Dynamically import Content
+            try:
+                raw_data['contents'] = [Content(**item) for item in raw_data['contents']]
+            except Exception as e:
+                print("Error converting 'contents' to Content objects:", e)  # Debug: Show conversion error
+
+        # Create an instance of the class with the parsed data
+        try:
+            return cls(**raw_data)
+        except Exception as e:
+            print(f"Error creating instance of '{cls.__name__}':", e)  # Debug: Show instantiation error
+            raise
 
     def attach_binary_data(self, binary_data: bytes):
         if hasattr(self, 'size') and len(binary_data) == self.size:

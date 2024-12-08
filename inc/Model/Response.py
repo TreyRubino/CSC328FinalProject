@@ -13,9 +13,13 @@ from .CustomProtocol import CustomProtocol
 # list of instances of this class.
 @dataclass
 class Content:
-    size: int
-    name: str
-    type: str
+    mode: str         # File permissions (e.g., -rw-r--r--)
+    nlink: int        # Number of links (1 for files, directory entry count for dirs)
+    user: str         # Username of the owner
+    group: str        # Group name of the owner
+    size: int         # File size in bytes
+    mtime: str        # Last modified date and time
+    name: str         # File or directory name
 
 # Basic but dynamic representation of our protocols responses.
 @dataclass
@@ -24,6 +28,7 @@ class Response(CustomProtocol):
     message: Optional[str] = None
     contents: Optional[List[Content]] = field(default_factory=list)
     code: Optional[str] = None
+    size: Optional[int] = 0
 
     def validate(self): 
         if not self.status:
