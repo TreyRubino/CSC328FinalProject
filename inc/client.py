@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
+
+# Ian Bull
+
 #import correct libraries
 import sys
 import socket
 import readline
+import os
+import signal
 
 from .Model.Request import Request
 from .Model.Response import Response
@@ -21,6 +26,21 @@ class Client:
     def __init__(self, parsedArguments): #attributes
         self.parsedArgs = parsedArguments
         self.utility = Utility()
+
+    #########################################################################
+    # Function name: shutdown_signal_handler
+    # Description: Signal handler to handle shutdown in the parent process. 
+    #              It raises a SystemExit exception with a message when the 
+    #              server signals a shutdown.
+    # Parameters: 
+    #   - signum : The signal number (standard signal identifier).
+    #   - frame  : The current stack frame (not used in this function).
+    # Return Value: None
+    #########################################################################
+    def shutdown_signal_handler(self, signum, frame):
+        # Signal handler to handle shutdown in the parent process
+        print("Server shutdown detected. Exiting REPL...")
+        raise SystemExit()  # Raise SystemExit to terminate the REPL gracefully
     
     #########################################################################
     # Function name: startClient
@@ -49,20 +69,59 @@ class Client:
     #########################################################################
     def startREPL(self, s):
         try:
-            while True: #Loop indefinitely until exit is typed
-                # Read user input
-                message = input(">>> ")
-                if not message.strip():
-                    continue
-                exitFound = self.executeCommand(s, message) #prepare and execute the correct command
-                if exitFound == True: #if exit command is typed 
-                    break   #break out
-        except KeyboardInterrupt:
-            print("\nExiting REPL...")
+            # Set up a signal handler to catch SIGUSR1 for server shutdown
+            signal.signal(signal.SIGUSR1, self.shutdown_signal_handler)
+
+            while True:  # Loop indefinitely until exit is typed
+                pid = os.fork()  # Create two processes to listen for server shutdown
+
+                if pid == 0:  # Child process to deal with server shutdown
+                    try:
+                        response = self.utility.recv_all(s, Response)  # Listen for server shutdown
+                        if response.status == "shutdown":  # If server shuts down
+                            # Send shutdown signal to parent, but don't raise SystemExit here
+                            os.kill(os.getppid(), signal.SIGUSR1)  # Send shutdown signal to parent
+                            os._exit(0)  # Exit the child process gracefully
+                    except Exception as e:
+                        print(f"Error in child process: {e}")
+                        os._exit(1)  # Ensure child exits on any exception
+
+                elif pid > 0:  # Parent process to deal with REPL commands
+                    try:
+                        message = input(">>> ")  # Read user input
+                        if not message.strip():
+                            continue
+
+                        # Reap the child process before restarting the loop
+                        os.kill(pid, signal.SIGTERM)  # Signal the child to terminate
+                        os.waitpid(pid, 0)  # Reap the child process
+
+                        # Handle REPL commands
+                        exitFound = self.executeCommand(s, message)  # Prepare and execute the correct command
+                        if exitFound:  # If exit command is typed
+                            break  # Exit the REPL loop
+
+                    except Exception as e:
+                        print(f"Error in parent process: {e}")
+                        os.kill(pid, signal.SIGTERM)  # Signal the child to terminate
+                        os.waitpid(pid, 0)  # Reap the child process
+                        break
+
+                else:  # In case of fork failure
+                    print("Fork failed. Exiting REPL.")  # Inform the user
+                    break  # Break out of the loop
+
+        except KeyboardInterrupt: #in case of ctrl+C
+            if pid == 0:
+                response = self.utility.clear() #formatting
+                request = Request(cmd="exit")
+                self.exitCmd(s, request)
+                print("\nExiting REPL...") #tell user 
         except EOFError:
             print("\nExiting REPL...")
         finally:
             readline.clear_history()
+
     #########################################################################
     # Function name: executeCommand
     # Description: Parses the user's input and executes the corresponding 
@@ -141,24 +200,12 @@ class Client:
         #pwd command
         elif request.cmd == "pwd": 
             self.pwdCmd(s, request) #call correct function
-        
-        elif request.cmd == "touch":
-            self.touchCmd(s, request)
-        
-        elif request.cmd == "ltouch":
-            self.ltouchCmd(s, request)
 
         elif request.cmd == "rm":
             self.rmCmd(s, request)
 
         elif request.cmd == "lrm":
             self.lrmCmd(s, request)
-
-        elif request.cmd == "mv":
-            self.mvCmd(s, request)
-
-        elif request.cmd == "lmv":
-            self.lmvCmd(s, request)
 
         elif request.cmd == "cat":
             self.catCmd(s, request)
@@ -183,7 +230,7 @@ class Client:
         self.utility.send_all(s, request) #send command to exit
         response = self.utility.recv_all(s, Response)
         if response.status == "success":
-            print("Disconnecting from server")
+            print("Disconnecting from server and exiting REPL.")
 
     #########################################################################
     # Function name: clearCmd
@@ -394,6 +441,17 @@ class Client:
         else: #errors
             print(f"Error: {response.message}")
 
+    #########################################################################
+    # Function name: lrmCmd
+    # Description: Handles the "rm" command by invoking the utility's remove 
+    #              method and checking the response status. If successful, 
+    #              there is no output. In case of an error, the error message 
+    #              is printed.
+    # Parameters: 
+    #   - s       : The socket object used for communication.
+    #   - request : The request data to be sent for the "rm" operation.
+    # Return Value: None
+    #########################################################################
     def lrmCmd(self, s, request):
         response = self.utility.rm(request) #get the response
         if response.status == "success": #if successful
@@ -401,55 +459,57 @@ class Client:
         else: #errors
             print(f"Error: {response.message}")
 
-    def ltouchCmd(self, s, request):
-        response = self.utility.touch(request) #get the response
-        if response.status == "success": #if successful
-            pass #continue - no output
-        else: #errors
-            print(f"Error: {response.message}")
-
-    def lmvCmd(self, s, request):
-        response = self.utility.mv(request) #get the response
-        if response.status == "success": #if successful
-            pass #continue - no output
-        else: #errors
-            print(f"Error: {response.message}")
-    
+    #########################################################################
+    # Function name: lcatCmd
+    # Description: Handles the "cat" command by invoking the utility's cat 
+    #              method and checking the response status. If successful, 
+    #              the response message is printed. In case of an error, the 
+    #              error message is printed.
+    # Parameters: 
+    #   - s       : The socket object used for communication.
+    #   - request : The request data to be sent for the "cat" operation.
+    # Return Value: None
+    #########################################################################
     def lcatCmd(self, s, request):
-        response = self.utility.cat(request) #get the response
-        if response.status == "success": #if successful
+        response = self.utility.cat(request)  # get the response
+        if response.status == "success":  # if successful
             print(response.message)
-        else: #errors
+        else:  # errors
             print(f"Error: {response.message}")
 
+    #########################################################################
+    # Function name: rmCmd
+    # Description: Handles the "rm" command by sending a request via socket 
+    #              and receiving the response. If successful, there is no 
+    #              output. In case of an error, the error message is printed.
+    # Parameters: 
+    #   - s       : The socket object used for communication.
+    #   - request : The request data to be sent for the "rm" operation.
+    # Return Value: None
+    #########################################################################
     def rmCmd(self, s, request):
-        self.utility.send_all(s, request) #send command 
-        response = self.utility.recv_all(s, Response) #get response
-        if response.status == "success": #if successful
-            pass #continue - no output
-        else: #errors
-            print(f"Error: {response.message}")
-    
-    def touchCmd(self, s, request):
-        self.utility.send_all(s, request) #send command 
-        response = self.utility.recv_all(s, Response) #get response
-        if response.status == "success": #if successful
-            pass #continue - no output
-        else: #errors
+        self.utility.send_all(s, request)  # send command
+        response = self.utility.recv_all(s, Response)  # get response
+        if response.status == "success":  # if successful
+            pass  # continue - no output
+        else:  # errors
             print(f"Error: {response.message}")
 
+    #########################################################################
+    # Function name: catCmd
+    # Description: Handles the "cat" command by sending a request via socket 
+    #              and receiving the response. If successful, the response 
+    #              message is printed. In case of an error, the error message 
+    #              is printed.
+    # Parameters: 
+    #   - s       : The socket object used for communication.
+    #   - request : The request data to be sent for the "cat" operation.
+    # Return Value: None
+    #########################################################################
     def catCmd(self, s, request):
-        self.utility.send_all(s, request) #send command 
-        response = self.utility.recv_all(s, Response) #get response
-        if response.status == "success": #if successful
+        self.utility.send_all(s, request)  # send command
+        response = self.utility.recv_all(s, Response)  # get response
+        if response.status == "success":  # if successful
             print(response.message)
-        else: #errors
-            print(f"Error: {response.message}")
-
-    def mvCmd(self, s, request):
-        self.utility.send_all(s, request) #send command 
-        response = self.utility.recv_all(s, Response) #get response
-        if response.status == "success": #if successful
-            pass #continue - no output
-        else: #errors
+        else:  # errors
             print(f"Error: {response.message}")

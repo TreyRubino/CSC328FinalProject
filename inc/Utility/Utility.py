@@ -1,260 +1,280 @@
-# Trey Rubino 
-
-# Common functionality.
+# Trey Rubino
 
 import os
 import stat
 import grp
 import pwd
-from typing import Type
+import shutil
 from datetime import datetime
+from typing import Type
 
 from ..Model.Request import Request
 from ..Model.Response import Response, Content
 from ..Model.CustomProtocol import CustomProtocol
 from .sec_check import normalize_path
 
-# Utility
-# Contains helper functions for both Server and Client to use.
-# Handles all commands as well as send and receive.
-# All command returns will be type `Response`,
-# and the `recv_all` return is dynamic. The use can specify 
-# which object they want built and returned to them (either Request or Response).
-# Please see `Response.py` and `Request.py` model classes for their set of properties to work with.
 class Utility:
+    """
+    Utility class that contains helper functions for both Server and Client to use.
+    Handles all commands, as well as sending and receiving data over sockets.
+    """
 
-    # constructor
-    # Sets the current working directory
     def __init__(self):
+        """
+        Constructor that sets the current local working directory.
+        """
         self.local_working_directory = os.getcwd()
-        
-    def help(self, request: Request) -> Response:
+
+    def help(self, request: Request = None) -> Response:
+        """
+        Provides a list of available commands and their descriptions, or a specific command's description if specified.
+
+        Args:
+            request (Request, optional): The `Request` object containing the `remote_path` to specify a command.
+
+        Returns:
+            Response: A success response containing the help text or an error response if the command is not found.
+        """
         try:
-            help_commands = {
-                # Remote Commands
+            help_dict = {
                 "exit": "Quit the application.",
-                "help": "[command] Display this help text.",
+                "help": "Display this help text.",
                 "cd": "Change remote directory to 'path'. If 'path' is not specified, change to the session's starting directory.",
-                "ls": "[-l] Display a remote directory listing of 'path' or the current directory if 'path' is not specified. Use the '-l' flag for detailed listing.",
-                "mkdir": "[-r] Create a remote directory specified by 'path'.",
+                "ls": "Display a remote directory listing of 'path' or the current directory if 'path' is not specified.",
+                "mkdir": "Create a remote directory specified by 'path'.",
                 "pwd": "Display the remote working directory.",
-                "get": (
-                    "[-r] Retrieve 'remote-path' and store it on the local machine. If 'local-path' is not specified, use the same name as on the remote machine. "
-                    "If the '-r' flag is specified, directories are copied recursively."
-                ),
-                "put": (
-                    "[-r] Upload 'local-path' and store it on the remote machine. If 'remote-path' is not specified, use the same name as on the local machine. "
-                    "If the '-r' flag is specified, directories are copied recursively."
-                ),
-                # Local Commands
+                "get": "Retrieve 'remote-path' and store it on the local machine. If 'local-path' is not specified, use the same name as on the remote machine. If the -R flag is specified, directories are copied recursively.",
+                "put": "Upload 'local-path' and store it on the remote machine. If 'remote-path' is not specified, use the same name as on the local machine. If the -R flag is specified, directories are copied recursively.",
                 "lcd": "Change local directory to 'path'. If 'path' is not specified, change to the user's home directory.",
-                "lls": "[-l] Display local directory listing of 'path' or the current directory if 'path' is not specified.",
-                "lmkdir": "[-r] Create a local directory specified by 'path'.",
-                "lpwd": "Print the local working directory."
+                "lls": "Display local directory listing of 'path' or the current directory if 'path' is not specified.",
+                "lmkdir": "Create a local directory specified by 'path'.",
+                "lpwd": "Print the local working directory.",
             }
 
-            if not request.remote_path:  # If no specific command is requested
-                all_help_text = "\n".join([f"{cmd}: {desc}" for cmd, desc in help_commands.items()])
-                return Response(status="success", message=all_help_text)
-            else:  # If a specific command is requested
-                help_text = help_commands.get(request.remote_path)
-                if help_text:
-                    return Response(status="success", message=help_text)
+            if request and request.remote_path:
+                command = request.remote_path.strip()
+                if command in help_dict:
+                    return Response(status="success", message=f"{command}: {help_dict[command]}")
                 else:
-                    return Response(status="error", message=f"Unknown command '{request.remote_path}'.", code="ERR_HELP_UNKNOWN")
+                    return Response(status="error", message=f"Command '{command}' not found.", code="ERR_COMMAND_NOT_FOUND")
+
+            help_text = "--------------------\n" \
+                        "Remote Commands:\n" + \
+                        "\n".join([f"  {cmd:<25}: {desc}" for cmd, desc in help_dict.items() if cmd not in ["lcd", "lls", "lmkdir", "lpwd"]]) + \
+                        "\n\nLocal Commands:\n" + \
+                        "\n".join([f"  {cmd:<25}: {desc}" for cmd, desc in help_dict.items() if cmd in ["lcd", "lls", "lmkdir", "lpwd"]])
+
+            return Response(status="success", message=help_text)
         except Exception as e:
             return Response(status="error", message=f"Failed to generate help text: {str(e)}", code="ERR_HELP")
 
-    # clear
-    # Clears the REPL screen by sending the appropriate command to the terminal.
     def clear(self) -> Response:
+        """
+        Clears the REPL screen by sending the appropriate command to the terminal.
+
+        Returns:
+            Response: A success response if the screen is cleared or an error response if clearing fails.
+        """
         try:
             os.system("clear")  # Clear the screen for Unix/Linux/Mac
-            
             return Response(status="success", message="Screen cleared")
         except Exception as e:
             return Response(status="error", message=f"Failed to clear screen: {str(e)}", code="ERR_CLEAR")
-        
-    def rm(self, request: Request) -> Request:
-        try:
-            path =  os.path.abspath(os.path.join(self.local_working_directory, ((request.local_path or request.remote_path) or '')))
 
-            if not 'r' in request.options:
-                os.remove(path)
-            else:
-                os.removedirs(path)
-            return Response(status="success", message=f"Removed: {request.local_path or request.remote_path}")
-        except FileNotFoundError:                                 # Handle cases where the path is invalid
-            return Response(status="error", message=f"Invalid path {path}.", code="ERR_INVALID_PATH")
-        except PermissionError:                                   # Handle cases where permission is denied
-            return Response(status="error", message=f"Permission denied for {path}.", code="ERR_PERMISSION_DENIED")
+    def rm(self, request: Request) -> Response:
+        """
+        Removes a file or directory specified in the request object.
 
-    def mv(self, request: Request) -> Request:
-        try: 
-            src = os.path.abspath((os.path.join(self.local_working_directory, request.local_path) or ''))
-            dst = os.path.abspath((os.path.join(self.local_working_directory, request.remote_path) or ''))
+        Args:
+            request (Request): The request object containing the path to remove.
 
-            if os.path.isdir(dst):
-                dst = os.path.join(dst, os.path.basename(src))
-
-            os.rename(src, dst)
-            return Response(status="success", message=f"Removed: {request.local_path or request.remote_path}")
-        except FileNotFoundError:
-            return Response(status="error", message=f"Invalid path {src}.", code="ERR_INVALID_PATH")
-        except PermissionError:
-            return Response(status="error", message=f"Permission denied for {src}.", code="ERR_PERMISSION_DENIED")
-        except OSError:
-            return Response(status="error", message=f"Destination path {dst} exists", code="ERR_FILE_EXISTS")
-
-    # touch
-    # Creates an empty file at the specified path or updates the timestamp of an existing file.
-    def touch(self, request: Request) -> Response:
+        Returns:
+            Response: A success or error response indicating the result of the operation.
+        """
         try:
             path = os.path.abspath(os.path.join(self.local_working_directory, ((request.local_path or request.remote_path) or '')))
 
-            with open(path, "a"):
-                os.utime(path, None) 
-            
-            return Response(status="success", message=f"File {path} created or timestamp updated")
-        except PermissionError:
-            return Response(status="error", message=f"Permission denied for {path}", code="ERR_PERMISSION_DENIED")
+            # Check if the path exists and handle file vs directory
+            if os.path.isfile(path):
+                os.remove(path)
+            elif os.path.isdir(path):
+                if '-r' in request.options:
+                    shutil.rmtree(path)
+                else:
+                    return Response(status="error", message=f"Cannot remove directory '{path}' without '-r' option.", code="ERR_IS_DIRECTORY")
+            else:
+                return Response(status="error", message=f"Invalid path {path}", code="ERR_INVALID_PATH")
+
+            return Response(status="success", message=f"Removed: {request.local_path or request.remote_path}")
         except FileNotFoundError:
             return Response(status="error", message=f"Invalid path {path}", code="ERR_INVALID_PATH")
-        except Exception as e:
-            return Response(status="error", message=f"Failed to touch file {path}: {str(e)}", code="ERR_TOUCH")
-        
-    def cat(self, request: Request) -> Response:
-        try:
-            path = os.path.abspath(os.path.join(self.local_working_directory, ((request.local_path or request.remote_path) or '')))
-
-            with open(path, "r") as file:
-                contents = file.read()
-            return Response(status="success", message=contents)
-        except FileNotFoundError:
-            return Response(status="error", message=f"File '{path}' not found.", code="ERR_FILE_NOT_FOUND")
         except PermissionError:
+            return Response(status="error", message=f"Permission denied for {path}.", code="ERR_PERMISSION_DENIED")
+        except Exception as e:
+            return Response(status="error", message=f"Failed to remove {path}: {str(e)}", code="ERR_REMOVE")
+
+    def cat(self, request: Request) -> Response:
+        """
+        Reads and returns the contents of a file specified in the request object.
+
+        Args:
+            request (Request): The request object containing the file path.
+
+        Returns:
+            Response: A success response containing file contents or an error response if reading fails.
+        """
+        try:
+            path = os.path.abspath(os.path.join(self.local_working_directory, ((request.local_path or request.remote_path) or ''))); 
+            if os.path.isdir(path): 
+                return Response(status="error", message=f"'{path}' is a directory, not a file.", code="ERR_IS_DIRECTORY"); 
+        
+            with open(path, "r") as file: 
+                contents = file.read(); 
+            return Response(status="success", message=contents)
+        except FileNotFoundError: 
+            return Response(status="error", message=f"File '{path}' not found.", code="ERR_FILE_NOT_FOUND")
+        except PermissionError: 
             return Response(status="error", message=f"Permission denied for '{path}'.", code="ERR_PERMISSION_DENIED")
 
-    # ls
-    # Lists the request directory files.
-    # Builds `Response.contents` containing size, name, and type of the entries.
-    # Accepts a `Request` object, which specifies the directory path.
     def ls(self, request: Request) -> Response:
-        try:
-            if request.cmd == 'get':
-                path = os.path.abspath(os.path.join(self.local_working_directory, request.remote_path))
-            else:
-                path = os.path.abspath(os.path.join(self.local_working_directory, ((request.local_path or request.remote_path) or '')))
+        """
+        Lists directory contents or file details for the specified path in the request object.
 
+        Args:
+            request (Request): The request object containing the directory or file path.
+
+        Returns:
+            Response: A success response containing directory or file details, or an error response if listing fails.
+        """
+        try:
+            path = os.path.abspath(os.path.join(self.local_working_directory, ((request.local_path or request.remote_path) or '')))
             entries = []
 
-            if os.path.isfile(path):  # If the path is a file, process it directly
+            if os.path.isfile(path):            # handle file
                 stats = os.stat(path)
-
                 mode = stat.filemode(stats.st_mode)
                 nlink = stats.st_nlink
                 user = pwd.getpwuid(stats.st_uid).pw_name
                 group = grp.getgrgid(stats.st_gid).gr_name
                 size = stats.st_size
-
                 mtime = datetime.fromtimestamp(stats.st_mtime).strftime("%Y-%m-%d %H:%M")
                 entries.append(Content(mode=mode, nlink=nlink, user=user, group=group, size=size, mtime=mtime, name=os.path.basename(path)))
-            else:  # Otherwise, treat it as a directory and list its contents
-                for entry in os.scandir(path): 
-                    stats = entry.stat() 
-
+            else:                               # handle directory
+                for entry in os.scandir(path):
+                    stats = entry.stat()
                     mode = stat.filemode(stats.st_mode)
                     nlink = stats.st_nlink
                     user = pwd.getpwuid(stats.st_uid).pw_name
                     group = grp.getgrgid(stats.st_gid).gr_name
                     size = stats.st_size
-
                     mtime = datetime.fromtimestamp(stats.st_mtime).strftime("%Y-%m-%d %H:%M")
                     entries.append(Content(mode=mode, nlink=nlink, user=user, group=group, size=size, mtime=mtime, name=entry.name))
 
-            # Sort entries alphabetically by name (case-insensitive)
             entries = sorted(entries, key=lambda x: x.name.lower())
-
-            return Response(status="success", contents=entries)  # Return success response with sorted entries
-        except FileNotFoundError:  # Handle cases where the directory doesn't exist
+            return Response(status="success", contents=entries)
+        except FileNotFoundError:
             return Response(status="error", message=f"Directory {path} not found", contents=[], code="ERR_DIR_NOT_FOUND")
-        except PermissionError:  # Handle cases where access is denied
+        except PermissionError:
             return Response(status="error", message=f"Permission denied for {path}", contents=[], code="ERR_PERMISSION_DENIED")
 
-    # pwd
-    # Returns the current working directory as the `Response.message`.
     def pwd(self) -> Response:
+        """
+        Returns the current working directory.
+
+        Returns:
+            Response: A success response containing the current working directory.
+        """
         return Response(status="success", message=self.local_working_directory)
 
-    # mkdir
-    # Creates a new directory in the requested path.
-    # Joins the current working directory with the requested.local_path (client) if set, 
-    # or uses remote_path (server) if local_path is not set.
     def mkdir(self, request: Request) -> Response:
+        """
+        Creates a new directory as specified in the request object.
+
+        Args:
+            request (Request): The request object containing the directory path.
+
+        Returns:
+            Response: A success or error response indicating the result of the operation.
+        """
         try:
-            path =  os.path.abspath(os.path.join(self.local_working_directory, ((request.local_path or request.remote_path) or '')))
-            if not 'r' in request.options: 
+            path = os.path.abspath(os.path.join(self.local_working_directory, ((request.local_path or request.remote_path) or '')))
+            if '-r' not in request.options:
                 os.mkdir(path)
             else:
                 os.makedirs(path)
             return Response(status="success", message=f"Directory '{request.local_path or request.remote_path}' created")
-        except FileExistsError:                                   # Handle cases where the directory already exists
-            return Response(status="error", message=f"Directory '{request.local_path or request.remote_path}' already exists.", code="ERR_DIR_EXISTS")
-        except FileNotFoundError:                                 # Handle cases where the path is invalid
+        except FileExistsError:
+            return Response(status="error", message=f"Directory '{request.local_path or request.remote_path}' already exists", code="ERR_DIR_EXISTS")
+        except FileNotFoundError:
             return Response(status="error", message=f"Invalid path {path}", code="ERR_INVALID_PATH")
-        except PermissionError:                                   # Handle cases where permission is denied
+        except PermissionError:
             return Response(status="error", message=f"Permission denied for {path}", code="ERR_PERMISSION_DENIED")
 
-    # cd
-    # Changes the current working directory.
-    # Joins the current working directory with the requested.local_path (client) if set, 
-    # or uses remote_path (server) if local_path is not set.
     def cd(self, request: Request) -> Response:
-        try:            
-            path = normalize_path(self.local_working_directory + '/' + (request.local_path or request.remote_path))
+        """
+        Changes the current working directory to the specified path in the request object.
 
-            # Check if the resolved path is a valid directory
+        Args:
+            request (Request): The request object containing the directory path.
+
+        Returns:
+            Response: A success or error response indicating the result of the operation.
+        """
+        try:
+            path = normalize_path(self.local_working_directory + '/' + (request.local_path or request.remote_path))
             if os.path.isdir(path):
-                os.chdir(path)  # Change the current working directory
-                self.local_working_directory = os.getcwd()  # Update the tracked working directory
+                os.chdir(path)
+                self.local_working_directory = os.getcwd()
                 return Response(status="success", message=f"Changed directory to {self.local_working_directory}")
             else:
                 return Response(status="error", message=f"{path} is not a valid directory", code="ERR_INVALID_DIR")
         except Exception as e:
-            # Catch unexpected errors and return an error response
             return Response(status="error", message=f"Failed to change directory: {str(e)}", code="ERR_CD")
-
-    # get
-    # One of four methods in this class that handles the send and recv logic for the user.
-    # Sends the `Request` to the server, receives the `Response`, and writes binary data (if any) to a local file.
+        
     def get(self, conn, request: Request) -> Response:
-        path = normalize_path(request.local_path)
+        """
+        Sends a `Request` to the server, receives the `Response`, and writes binary data (if any) to a local file.
 
+        Args:
+            conn: The connection object used to communicate with the server.
+            request (Request): The `Request` object containing the file retrieval details.
+
+        Returns:
+            Response: The server's response or an error response if the operation fails.
+        """
         try:
+            path = os.path.abspath(os.path.join(self.local_working_directory, request.local_path))
             self.send_all(conn, request)                          # Send the `Request` to the server
             response = self.recv_all(conn, Response)              # Receive the `Response` from the server
 
             if response.status == "success":
                 for entry in response.contents:
                     path += '/' + entry.name
-                    with open(path, "wb") as file:
-                        file.write(response.get_binary_data())
-
+                    if (response.size > 0):
+                        with open(path, "wb") as file:
+                            file.write(response.get_binary_data())
+                    else: 
+                       return Response(status="error", message=f"No data received for {entry.name}.")
             return self.recv_all(conn, Response)  # Return the server's response
         except Exception as e:
             return Response(status="error", message=f"Failed to download file {request.remote_path}: {str(e)}", code="ERR_GET_CLIENT")
 
-    # put
-    # Two of four methods in this class that handles the send and recv logic for the user.
-    # Sends a file to the server by attaching binary data to the `Request`.
-    # Sends the `Request`, then waits for the server's `Response`.
     def put(self, conn, request: Request) -> Response:
+        """
+        Sends a file to the server by attaching binary data to the `Request`.
+
+        Args:
+            conn: The connection object used to communicate with the server.
+            request (Request): The `Request` object containing the file upload details.
+
+        Returns:
+            Response: The server's response or an error response if the operation fails.
+        """
         try:
             path = normalize_path(request.local_path)
 
             with open(path, "rb") as file:          # Open the file in binary mode for reading
                 binary_data = file.read()                         # Read the file's binary data
-
             request.size = len(binary_data)                       # Set the size property in the `Request`
             self.send_all(conn, request)                          # Send the `Request` with metadata and binary data
 
@@ -266,29 +286,43 @@ class Utility:
         except Exception as e:
             return Response(status="error", message=f"Failed to send file {request.local_path}: {str(e)}", code="ERR_PUT_CLIENT")
 
-    # put logic for server
     def receive_file(self, request: Request) -> Response:
-        path = normalize_path(request.remote_path + '/' + request.local_path)
+        """
+        Handles file reception on the server, saving the binary data to the specified path.
 
+        Args:
+            request (Request): The `Request` object containing file metadata and binary data.
+
+        Returns:
+            Response: A success response if the file is saved successfully or an error response otherwise.
+        """
         try:
+            path = normalize_path(request.remote_path + '/' + request.local_path)
             if request.size <= 0:
                 raise ValueError("Invalid file size in the request.")
 
             with open(path, "wb") as file:           # open received path in write binary mode
                 file.write(request.get_binary_data())               # write binary data to file
             
-            return Response(status="success", message=f"File {request.remote_path} received successfully.")
+            return Response(status="success", message=f"File {request.local_path} received successfully.")
         except Exception as e:
-            # Respond with error in case of failure
             return Response(status="error", message=f"Failed to save file '{path}': {str(e)}", code="ERR_PUT_SERVER")
 
-    # get logic for server
     def send_file(self, conn, request: Request) -> Response:
-        path = normalize_path(request.remote_path)
-        try:
-            res = self.ls(request)
+        """
+        Handles file sending on the server, transmitting binary data to the client.
 
-            print(res)
+        Args:
+            conn: The connection object used to communicate with the client.
+            request (Request): The `Request` object specifying the file to send.
+
+        Returns:
+            Response: A success response if the file is sent successfully or an error response otherwise.
+        """
+        try:
+            path = os.path.abspath(os.path.join(self.local_working_directory, request.remote_path))
+            request.local_path = None
+            res = self.ls(request)
             if res.status != 'success':
                 raise
 
@@ -306,9 +340,17 @@ class Utility:
         except Exception as e:
             return Response(status="error", message=f"Failed to send file '{request.remote_path}': {str(e)}", code="ERR_GET_SERVER")
 
-    # send_all
-    # Sends a `CustomProtocol` object (either `Request` or `Response`) and optional binary data over the socket.
     def send_all(self, conn, obj: CustomProtocol) -> None:
+        """
+        Sends a `CustomProtocol` object (either `Request` or `Response`) over the socket.
+
+        Args:
+            conn: The connection object used to communicate.
+            obj (CustomProtocol): The object to be sent, encoded as JSON.
+
+        Raises:
+            Exception: If an error occurs during sending.
+        """
         try:
             json_payload = obj.prepare()                         # Prepare the object (validate and encode to JSON)
             conn.sendall(json_payload)                           # Send the JSON payload over the socket
@@ -316,10 +358,20 @@ class Utility:
             print(f"Error sending data: {e}")
             raise
 
-    # recv_all
-    # Receives JSON metadata and optional binary data from the socket.
-    # Dynamically constructs and returns the specified `CustomProtocol` object type (e.g., `Request` or `Response`).
     def recv_all(self, conn, obj_type: Type[CustomProtocol]) -> CustomProtocol:
+        """
+        Receives JSON metadata and optional binary data from the socket and constructs the specified object type.
+
+        Args:
+            conn: The connection object used to communicate.
+            obj_type (Type[CustomProtocol]): The type of object to construct (e.g., `Request` or `Response`).
+
+        Returns:
+            CustomProtocol: The constructed object with all received data.
+
+        Raises:
+            Exception: If an error occurs during reception or object construction.
+        """
         try:
             buffer = b""                                         # Allocate space for the buffer
             while not buffer.decode('utf-8').strip().endswith('}'):  # Read bytes until the message ends with '}'
@@ -328,8 +380,9 @@ class Utility:
             obj = obj_type.decode(buffer, obj_type)              # Decode the buffer into the given obj_type
 
             if hasattr(obj, 'size') and obj.size > 0: # Check if the size property indicates incoming binary data
-                response = Response(status="success", message="Awaiting binary data")
+                response = Response(status="success", message="Awaiting binary data...")
                 self.send_all(conn, response)
+
                 binary_data = b""                                # Allocate space for the binary data buffer
                 size = obj.size 
                 bytes_remaining = size                   # Determine the number of bytes to receive

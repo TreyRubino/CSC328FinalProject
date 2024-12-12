@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+# Ian Bull
+
 import os
 import sys
 

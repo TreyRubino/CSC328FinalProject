@@ -7,9 +7,6 @@ import os
 from ..Model.Connection import Connection
 
 def read_pipe(read_fd, session):
-    """
-    Handles the reading of the child connection data
-    """
     while True:
         try:
             raw_data = os.read(read_fd, 1024).decode('utf-8')
@@ -17,7 +14,6 @@ def read_pipe(read_fd, session):
                 connection_data = json.loads(raw_data)
                 client_id = connection_data['client_id']
                 session.update_connections(client_id, connection_data)
-
                 os.system("clear")
                 session.display_clients()
             else:
@@ -30,9 +26,6 @@ def read_pipe(read_fd, session):
             print(f"Error reading from pipe: {e}")
 
 def update_session(write_fd, connection: Connection):
-    """
-    Handles writing updated connection data to the main session
-    """
     try:
         if write_fd:  # Ensure write_fd is valid
             serialized_data = json.dumps(connection.to_dict())
