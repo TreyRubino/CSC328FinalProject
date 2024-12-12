@@ -315,6 +315,9 @@ Currently all required commands should be completely functional, with the except
 
 ## 10. References
 
+### Project Github
+[https://github.com/TreyRubino/CSC328FinalProject](https://github.com/TreyRubino/CSC328FinalProject)
+
 ### Python Official Documentation
 1. **Python Documentation Home**  
    [https://docs.python.org/3/](https://docs.python.org/3/)
